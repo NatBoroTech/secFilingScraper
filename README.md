@@ -23,7 +23,9 @@ Financial Ratio Calculation: Computes essential financial ratios, including:
 
 
 **Dependencies** 
+
 requests: For making HTTP requests to the SEC API.
+
 pandas: For data manipulation and analysis.
 
 
