@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Sep 19 11:11:11 2024
-SEC Filing Scraper with Financial Ratios
+SEC Filing Scraper with Financial Ratios including Z-score
 
 @author: Natalie
 """
 
-
 # import modules
 import requests
 import pandas as pd
+import yfinance as yf
+from datetime import date
 
 # create request header
 headers = {'User-Agent': "email@address.com"}
@@ -44,19 +45,13 @@ def get_company_financial_data(cik, concept):
         return response.json()
     return None
 
-
-
 # Function to safely extract the most recent value from financial data
 def extract_most_recent_value(data, concept):
     try:
-        # Print the raw response for debugging
-        print(f"Data for concept '{concept}': {data}\n")
-        
-        # Check if 'units', 'USD', and 'value' exist in the JSON response
+        # print(f"Data for concept '{concept}': {data}\n")
         if 'units' in data and 'USD' in data['units'] and len(data['units']['USD']) > 0:
-            # Sort the entries by the 'end' date and get the most recent one
             sorted_data = sorted(data['units']['USD'], key=lambda x: x['end'], reverse=True)
-            most_recent_value = sorted_data[0]['val']  # Get the 'val' of the most recent entry
+            most_recent_value = sorted_data[0]['val']
             return most_recent_value
         else:
             print(f"Missing or incorrect format for '{concept}'")
@@ -64,7 +59,32 @@ def extract_most_recent_value(data, concept):
         print(f"Error extracting value for '{concept}': {e}")
     return None
 
+# Function to calculate Altman Z-score
+def calculate_z_score(assets, liabilities, current_assets, current_liabilities, net_income, revenue, equity, shares_outstanding, stock_price):
+    # Working Capital = Current Assets - Current Liabilities
+    working_capital = current_assets - current_liabilities if current_assets is not None and current_liabilities is not None else None
 
+    
+    # Market Value of Equity = Stock Price * Shares Outstanding
+    market_value_of_equity = stock_price * shares_outstanding if shares_outstanding is not None else None
+
+    # Retained Earnings = Net Income (using as proxy for simplicity)
+    retained_earnings = net_income if net_income is not None else None
+
+    # Calculate Z-score components if the necessary data is available
+    if all(v is not None for v in [assets, liabilities, working_capital, retained_earnings, net_income, revenue, market_value_of_equity]):
+        A = working_capital / assets
+        B = retained_earnings / assets
+        C = net_income / assets  # Using net_income as EBIT for simplicity
+        D = market_value_of_equity / liabilities
+        E = revenue / assets
+
+        # Calculate the Z-score
+        Z = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E)
+        return Z
+    else:
+        print("\n\nSome data required for Z-score calculation is missing.")
+        return None
 
 # Function to calculate financial ratios
 def calculate_financial_ratios(cik):
@@ -79,42 +99,39 @@ def calculate_financial_ratios(cik):
     net_income_data = get_company_financial_data(cik, 'NetIncomeLoss')
     current_assets_data = get_company_financial_data(cik, 'AssetsCurrent')
     current_liabilities_data = get_company_financial_data(cik, 'LiabilitiesCurrent')
-    shares_outstanding_data = get_company_financial_data(cik, 'CommonStockSharesOutstanding')
 
     # Extract the most recent values from the financials
-    assets = extract_most_recent_value(assets_data, 'Assets')
-    liabilities = extract_most_recent_value(liabilities_data, 'Liabilities')
-    equity = extract_most_recent_value(equity_data, 'StockholdersEquity')
-    revenue = extract_most_recent_value(revenue_data, 'Revenues')
-    net_income = extract_most_recent_value(net_income_data, 'NetIncomeLoss')
-    current_assets = extract_most_recent_value(current_assets_data, 'AssetsCurrent')
-    current_liabilities = extract_most_recent_value(current_liabilities_data, 'LiabilitiesCurrent')
-    shares_outstanding = extract_most_recent_value(shares_outstanding_data, 'CommonStockSharesOutstanding')
-
-   #    # Debugging: Print the values extracted
-   #        print(f"Assets: {assets}, Liabilities: {liabilities}, Equity: {equity}")
-   #        print(f"Revenue: {revenue}, Net Income: {net_income}")
-   #        print(f"Current Assets: {current_assets}, Current Liabilities: {current_liabilities}")
-   #        print(f"Shares Outstanding: {shares_outstanding}")
+    stock_info = yf.Ticker(company_ticker)
+    shares_outstanding = stock_info.info.get('sharesOutstanding')
     
-    # Check if the essential data is available and specify which data is missing
+    assets = extract_most_recent_value(assets_data, 'Assets')
+    print(f"\nAssets: {assets}")
+    current_assets = extract_most_recent_value(current_assets_data, 'AssetsCurrent')
+    print(f"Current Assets: {current_assets}")
+    liabilities = extract_most_recent_value(liabilities_data, 'Liabilities')
+    print(f"Liabilities: {liabilities}")
+    current_liabilities = extract_most_recent_value(current_liabilities_data, 'LiabilitiesCurrent')
+    print(f"Current Liabilities: {current_liabilities}")
+    equity = extract_most_recent_value(equity_data, 'StockholdersEquity')
+    print(f"Equity: {equity}")
+    revenue = extract_most_recent_value(revenue_data, 'Revenues')
+    print(f"\nRevenue: {revenue}")
+    net_income = extract_most_recent_value(net_income_data, 'NetIncomeLoss')
+    print(f"Net Income: {net_income}")
+    # print(type(shares_outstanding))
+    print(f"Shares Outstanding: {shares_outstanding}\n")
+
+
+    # Check if the essential data is available
     missing_data = []
-    if assets is None:
-        missing_data.append("Assets")
-    if liabilities is None:
-        missing_data.append("Liabilities")
-    if equity is None:
-        missing_data.append("Stockholders Equity")
-    if revenue is None:
-        missing_data.append("Revenues")
-    if net_income is None:
-        missing_data.append("Net Income")
-    if current_assets is None:
-        missing_data.append("Current Assets")
-    if current_liabilities is None:
-        missing_data.append("Current Liabilities")
-    if shares_outstanding is None:
-        missing_data.append("Shares Outstanding")
+    if assets is None: missing_data.append("Assets")
+    if liabilities is None: missing_data.append("Liabilities")
+    if equity is None: missing_data.append("Stockholders Equity")
+    if revenue is None: missing_data.append("Revenues")
+    if net_income is None: missing_data.append("Net Income")
+    if current_assets is None: missing_data.append("Current Assets")
+    if current_liabilities is None: missing_data.append("Current Liabilities")
+    if shares_outstanding is None: missing_data.append("Shares Outstanding")
 
     if missing_data:
         print("Some essential financial data is missing:")
@@ -123,8 +140,6 @@ def calculate_financial_ratios(cik):
     else:
         print("All essential financial data is available.")
 
-
-    
     # Calculate ratios only when sufficient data is available
     ratios = {}
 
@@ -133,6 +148,18 @@ def calculate_financial_ratios(cik):
         ratios['Current Ratio'] = current_assets / current_liabilities
     else:
         ratios['Current Ratio'] = None
+        
+    # Quick Ratio (Current Assets minus Inventory divided by Current Liabilities)
+    if current_assets is not None and current_liabilities is not None:
+        ratios['Quick Ratio'] = current_assets / current_liabilities  # Placeholder
+    else:
+        ratios['Quick Ratio'] = None
+
+    # Debt Ratio
+    if liabilities is not None and assets is not None:
+        ratios['Debt Ratio'] = liabilities / assets
+    else:
+        ratios['Debt Ratio'] = None
 
     # Debt to Equity Ratio
     if liabilities is not None and equity is not None:
@@ -161,30 +188,24 @@ def calculate_financial_ratios(cik):
     else:
         ratios['Return on Assets (ROA)'] = None
 
-    # Debt Ratio
-    if liabilities is not None and assets is not None:
-        ratios['Debt Ratio'] = liabilities / assets
-    else:
-        ratios['Debt Ratio'] = None
-
-    # Quick Ratio (Current Assets minus Inventory divided by Current Liabilities)
-    # Assuming inventory concept might need to be added similarly to fetch actual inventory data
-    if current_assets is not None and current_liabilities is not None:
-        ratios['Quick Ratio'] = current_assets / current_liabilities  # Placeholder; adjust with actual inventory data
-    else:
-        ratios['Quick Ratio'] = None
-
     # Earnings per Share (EPS)
     if net_income is not None and shares_outstanding is not None:
         ratios['Earnings per Share (EPS)'] = net_income / shares_outstanding
     else:
         ratios['Earnings per Share (EPS)'] = None
 
-    # Price-to-Earnings (P/E) Ratio (You'd need the company's stock price for this)
-    # Assuming you have a stock price available from another source
-    stock_price = 100  # Placeholder value for stock price
+    # Get the stock price
+    end_date = date.today()
+    start_date = date(year=end_date.year, month=1, day=1)
+    stock_current_data = yf.download(company_ticker, start_date, end_date)
+    stock_price = stock_current_data['Close'].tail(1).iloc[0]  # Extract scalar value
+    # stock_price = stock_current_data['Close'].tail(1)
+
+
+
+    # Price-to-Earnings (P/E) Ratio (assuming a stock price is available)
     if ratios['Earnings per Share (EPS)'] is not None:
-        ratios['Price-to-Earnings (P/E) Ratio'] = stock_price / ratios['Earnings per Share (EPS)']
+       ratios['Price-to-Earnings (P/E) Ratio'] = stock_price / ratios['Earnings per Share (EPS)']
     else:
         ratios['Price-to-Earnings (P/E) Ratio'] = None
 
@@ -194,6 +215,14 @@ def calculate_financial_ratios(cik):
     else:
         ratios['Asset Turnover'] = None
 
+    # Calculate the Altman Z-score
+    z_score = calculate_z_score(assets, liabilities, current_assets, current_liabilities, net_income, revenue, equity, shares_outstanding, stock_price)
+    
+    if z_score is not None:
+        print(f"\nAltman Z-score: {z_score:.2f}")
+    else:
+        print("Z-score could not be calculated due to missing data.")
+    
     return ratios
 
 # Main loop for user interaction
